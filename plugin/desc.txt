@@ -1,4 +1,4 @@
-Regent-DREX
+Regent-DREX v1.2
 
 基于 DREX 指令路由的 QQ 群管系统，与墨鸦 Strata 同源。
 
