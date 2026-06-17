@@ -117,15 +117,8 @@ public boolean isProtected(String groupId, String target, String operator) {
 
 public boolean canOperate(String groupId, String operator, String target) {
     if (operator == null || target == null) return false;
-    if (isOwner(operator) && !isDelegate(groupId, target) && !isOwner(target)) return true;
-    if (isDelegate(groupId, operator) && !isDelegate(groupId, target) && !isOwner(target)) return true;
-    return false;
-}
-
-public boolean canOperate(String groupId, String operator, String target) {
-    if (operator == null || target == null) return false;
     if (isOwner(operator)) return true;
-    if (isDelegate(groupId, operator) && !isDelegate(null, target) && !isOwner(target)) return true;
+    if (isDelegate(groupId, operator) && !isDelegate(groupId, target) && !isOwner(target)) return true;
     return false;
 }
 
@@ -331,12 +324,12 @@ public void sendFeedback(String groupId, String content) {
     } catch (Exception e) { log("sendFeedbackError: " + e); }
 }
 
-public void sendReplyFeedback(Object msg, String content) {
+public void sendReplyFeedback(String groupId, long replyMsgId, String content) {
     try {
-        if (msg != null && msg.msgId != 0) {
-            sendReplyMsg(String.valueOf(msg.peerUin), msg.msgId, content, msg.type);
+        if (replyMsgId != 0) {
+            sendReplyMsg(groupId, replyMsgId, content, 2);
         } else {
-            sendFeedback(String.valueOf(msg.peerUin), content);
+            sendFeedback(groupId, content);
         }
     } catch (Exception e) { log("sendReplyError: " + e); }
 }
@@ -462,7 +455,7 @@ public CommandArgs parseCommand(String text, ArrayList atList) {
 
 // ==================== 指令处理器 ====================
 interface CommandHandler {
-    void handle(String groupId, String operatorUin, CommandArgs args, Object msg);
+    void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId);
 }
 
 Map commandHandlers = new HashMap();
@@ -470,48 +463,48 @@ Map commandHandlers = new HashMap();
 {
     // ========== /mute ==========
     commandHandlers.put("/mute", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "禁言失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "禁言失败: 权限不足"); return;
             }
             
             // /mute all
             if ("all".equals(args.subCommand)) {
                 try {
                     shutUp(groupId, "", 1);
-                    sendReplyFeedback(msg, "已开启全体禁言 执行人: [atUin="+ operatorUin + "]");
+                    sendReplyFeedback(groupId, replyMsgId, "已开启全体禁言 执行人: [atUin="+ operatorUin + "]");
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "全体禁言失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "全体禁言失败: " + e.getMessage());
                 }
                 return;
             }
             
             // /mute list
             if ("list".equals(args.subCommand)) {
-                showMuteList(groupId, msg);
+                showMuteList(groupId, replyMsgId);
                 return;
             }
             
             // /mute @user <time> [reason]
             if (args.targets.isEmpty() || args.timeSeconds <= 0) {
-                sendReplyFeedback(msg, "格式错误: /mute @用户 <时间> [理由]\n时间格式: 15s(秒) / 30m(分) / 2h(时) / 1d(天)");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /mute @用户 <时间> [理由]\n时间格式: 15s(秒) / 30m(分) / 2h(时) / 1d(天)");
                 return;
             }
             
             if (args.timeSeconds > 2592000) {
-                sendReplyFeedback(msg, "禁言失败: 时间不能超过30天"); return;
+                sendReplyFeedback(groupId, replyMsgId, "禁言失败: 时间不能超过30天"); return;
             }
             
             for (Object targetObj : args.targets) {
                 String target = (String) targetObj;
                 
                 if (isProtected(groupId, target, operatorUin)) {
-                    if (isOwner(target)) sendReplyFeedback(msg, "禁言失败: 不能禁言宿主");
-                    else sendReplyFeedback(msg, "禁言失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
+                    if (isOwner(target)) sendReplyFeedback(groupId, replyMsgId, "禁言失败: 不能禁言宿主");
+                    else sendReplyFeedback(groupId, replyMsgId, "禁言失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
                     continue;
                 }
                 if (!canOperate(groupId, operatorUin, target)) {
-                    sendReplyFeedback(msg, "禁言失败: 权限不足"); continue;
+                    sendReplyFeedback(groupId, replyMsgId, "禁言失败: 权限不足"); continue;
                 }
                 
                 try {
@@ -519,9 +512,9 @@ Map commandHandlers = new HashMap();
                     String fb = "禁言成功! 用户: " + getMemberDisplayName(groupId, target) + "(" + target + ") 时长: " + args.timeStr;
                     if (args.reason != null && !args.reason.isEmpty()) fb += " 理由: " + args.reason;
                     fb += " 执行人: [atUin="+ operatorUin + "]";
-                    sendReplyFeedback(msg, fb);
+                    sendReplyFeedback(groupId, replyMsgId, fb);
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "禁言失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "禁言失败: " + e.getMessage());
                 }
             }
         }
@@ -529,24 +522,24 @@ Map commandHandlers = new HashMap();
     
     // ========== /unmute ==========
     commandHandlers.put("/unmute", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "解禁失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "解禁失败: 权限不足"); return;
             }
             
             // /unmute all
             if ("all".equals(args.subCommand)) {
                 try {
                     shutUp(groupId, "", 0);
-                    sendReplyFeedback(msg, "已关闭全体禁言 执行人: [atUin="+ operatorUin + "]");
+                    sendReplyFeedback(groupId, replyMsgId, "已关闭全体禁言 执行人: [atUin="+ operatorUin + "]");
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "全体解禁失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "全体解禁失败: " + e.getMessage());
                 }
                 return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /unmute @用户 或 /unmute all");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /unmute @用户 或 /unmute all");
                 return;
             }
             
@@ -554,9 +547,9 @@ Map commandHandlers = new HashMap();
                 String target = (String) targetObj;
                 try {
                     shutUp(groupId, target, 0);
-                    sendReplyFeedback(msg, "已解禁 " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
+                    sendReplyFeedback(groupId, replyMsgId, "已解禁 " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "解禁失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "解禁失败: " + e.getMessage());
                 }
             }
         }
@@ -564,32 +557,35 @@ Map commandHandlers = new HashMap();
     
     // ========== /kick ==========
     commandHandlers.put("/kick", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "踢出失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "踢出失败: 权限不足"); return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /kick @用户"); return;
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /kick @用户"); return;
             }
             
             for (Object targetObj : args.targets) {
                 String target = (String) targetObj;
                 
                 if (isProtected(groupId, target, operatorUin)) {
-                    if (isOwner(target)) sendReplyFeedback(msg, "踢出失败: 不能踢出宿主");
-                    else sendReplyFeedback(msg, "踢出失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
+                    if (isOwner(target)) sendReplyFeedback(groupId, replyMsgId, "踢出失败: 不能踢出宿主");
+                    else sendReplyFeedback(groupId, replyMsgId, "踢出失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
                     continue;
                 }
                 if (!canOperate(groupId, operatorUin, target)) {
-                    sendReplyFeedback(msg, "踢出失败: 权限不足"); continue;
+                    sendReplyFeedback(groupId, replyMsgId, "踢出失败: 权限不足"); continue;
                 }
                 
                 try {
                     kickGroup(groupId, target, false);
-                    sendReplyFeedback(msg, "已踢出 " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
+                    String fb = "已踢出 " + getMemberDisplayName(groupId, target) + "(" + target + ")";
+                    if (args.reason != null && !args.reason.isEmpty()) fb += " 理由: " + args.reason;
+                    fb += " 执行人:[atUin=" + operatorUin + "]";
+                    sendReplyFeedback(groupId, replyMsgId, fb);
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "踢出失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "踢出失败: " + e.getMessage());
                 }
             }
         }
@@ -597,9 +593,9 @@ Map commandHandlers = new HashMap();
     
     // ========== /ban (踢黑) ==========
     commandHandlers.put("/ban", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "踢黑失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "踢黑失败: 权限不足"); return;
             }
             
             // /ban list
@@ -607,7 +603,7 @@ Map commandHandlers = new HashMap();
                 File f = getBanFile(groupId);
                 ArrayList list = readLines(f);
                 if (list.isEmpty()) {
-                    sendReplyFeedback(msg, "本群黑名单为空"); return;
+                    sendReplyFeedback(groupId, replyMsgId, "本群黑名单为空"); return;
                 }
                 StringBuilder sb = new StringBuilder("本群黑名单(" + list.size() + "人):\n");
                 for (int i = 0; i < list.size(); i++) {
@@ -615,32 +611,35 @@ Map commandHandlers = new HashMap();
                     if (u == null) continue;
                     sb.append((i + 1) + ". " + getMemberDisplayName(groupId, u) + "(" + u + ")\n");
                 }
-                sendReplyFeedback(msg, sb.toString().trim());
+                sendReplyFeedback(groupId, replyMsgId, sb.toString().trim());
                 return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /ban @用户 或 /ban list"); return;
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /ban @用户 或 /ban list"); return;
             }
             
             for (Object targetObj : args.targets) {
                 String target = (String) targetObj;
                 
                 if (isProtected(groupId, target, operatorUin)) {
-                    if (isOwner(target)) sendReplyFeedback(msg, "踢黑失败: 不能拉黑宿主");
-                    else sendReplyFeedback(msg, "踢黑失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
+                    if (isOwner(target)) sendReplyFeedback(groupId, replyMsgId, "踢黑失败: 不能拉黑宿主");
+                    else sendReplyFeedback(groupId, replyMsgId, "踢黑失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
                     continue;
                 }
                 if (!canOperate(groupId, operatorUin, target)) {
-                    sendReplyFeedback(msg, "踢黑失败: 权限不足"); continue;
+                    sendReplyFeedback(groupId, replyMsgId, "踢黑失败: 权限不足"); continue;
                 }
                 
                 try {
                     kickGroup(groupId, target, true);
                     appendLine(getBanFile(groupId), target);
-                    sendReplyFeedback(msg, "踢黑成功! 用户: " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
+                    String fb = "踢黑成功! 用户: " + getMemberDisplayName(groupId, target) + "(" + target + ")";
+                    if (args.reason != null && !args.reason.isEmpty()) fb += " 理由: " + args.reason;
+                    fb += " 执行人:[atUin=" + operatorUin + "]";
+                    sendReplyFeedback(groupId, replyMsgId, fb);
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "踢黑失败: " + e.getMessage());
+                    sendReplyFeedback(groupId, replyMsgId, "踢黑失败: " + e.getMessage());
                 }
             }
         }
@@ -648,9 +647,9 @@ Map commandHandlers = new HashMap();
     
     // ========== /admin ==========
     commandHandlers.put("/admin", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwner(operatorUin)) {
-                sendReplyFeedback(msg, "权限不足: 仅主人可管理代管"); return;
+                sendReplyFeedback(groupId, replyMsgId, "权限不足: 仅主人可管理代管"); return;
             }
             
             // /admin list
@@ -658,7 +657,7 @@ Map commandHandlers = new HashMap();
                 File f = getDelegateFile();
                 ArrayList list = readLines(f);
                 if (list.isEmpty()) {
-                    sendReplyFeedback(msg, "当前没有代管"); return;
+                    sendReplyFeedback(groupId, replyMsgId, "当前没有代管"); return;
                 }
                 StringBuilder sb = new StringBuilder("代管列表(" + list.size() + "人):\n");
                 for (int i = 0; i < list.size(); i++) {
@@ -666,25 +665,25 @@ Map commandHandlers = new HashMap();
                     if (u == null) continue;
                     sb.append((i + 1) + ". " + getMemberDisplayName(groupId, u) + "(" + u + ")\n");
                 }
-                sendReplyFeedback(msg, sb.toString().trim());
+                sendReplyFeedback(groupId, replyMsgId, sb.toString().trim());
                 return;
             }
             
             // /admin clear
             if ("clear".equals(args.subCommand)) {
                 overwriteLines(getDelegateFile(), new ArrayList());
-                sendReplyFeedback(msg, "代管已全部清空 执行人: [atUin="+ operatorUin + "]");
+                sendReplyFeedback(groupId, replyMsgId, "代管已全部清空 执行人: [atUin="+ operatorUin + "]");
                 return;
             }
             
             // /admin add 或 /admin rm
             if (args.subCommand == null || (!"add".equals(args.subCommand) && !"rm".equals(args.subCommand))) {
-                sendReplyFeedback(msg, "格式错误: /admin add|rm|list|clear @用户");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /admin add|rm|list|clear @用户");
                 return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /admin " + args.subCommand + " @用户");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /admin " + args.subCommand + " @用户");
                 return;
             }
             
@@ -692,22 +691,22 @@ Map commandHandlers = new HashMap();
             for (Object targetObj : args.targets) {
                 String target = (String) targetObj;
                 if (isOwner(target)) {
-                    sendReplyFeedback(msg, "不能操作宿主"); continue;
+                    sendReplyFeedback(groupId, replyMsgId, "不能操作宿主"); continue;
                 }
                 
                 if ("add".equals(args.subCommand)) {
                     if (containsLine(f, target)) {
-                        sendReplyFeedback(msg, getMemberDisplayName(groupId, target) + " 已经是代管了");
+                        sendReplyFeedback(groupId, replyMsgId, getMemberDisplayName(groupId, target) + " 已经是代管了");
                     } else {
                         appendLine(f, target);
-                        sendReplyFeedback(msg, "已添加代管: " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
+                        sendReplyFeedback(groupId, replyMsgId, "已添加代管: " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
                     }
                 } else if ("rm".equals(args.subCommand)) {
                     if (containsLine(f, target)) {
                         removeLine(f, target);
-                        sendReplyFeedback(msg, "已删除代管: " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
+                        sendReplyFeedback(groupId, replyMsgId, "已删除代管: " + getMemberDisplayName(groupId, target) + "(" + target + ") 执行人: [atUin="+ operatorUin + "]");
                     } else {
-                        sendReplyFeedback(msg, getMemberDisplayName(groupId, target) + " 不是代管");
+                        sendReplyFeedback(groupId, replyMsgId, getMemberDisplayName(groupId, target) + " 不是代管");
                     }
                 }
             }
@@ -716,53 +715,53 @@ Map commandHandlers = new HashMap();
     
     // ========== /alliance ==========
     commandHandlers.put("/alliance", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwner(operatorUin)) {
-                sendReplyFeedback(msg, "权限不足: 仅主人可管理联盟"); return;
+                sendReplyFeedback(groupId, replyMsgId, "权限不足: 仅主人可管理联盟"); return;
             }
             
             if ("add".equals(args.subCommand)) {
                 addAllianceGroup(groupId);
-                sendReplyFeedback(msg, "已添加联盟群: " + groupId + " 执行人: [atUin="+ operatorUin + "]");
+                sendReplyFeedback(groupId, replyMsgId, "已添加联盟群: " + groupId + " 执行人: [atUin="+ operatorUin + "]");
             } else if ("rm".equals(args.subCommand)) {
                 removeAllianceGroup(groupId);
-                sendReplyFeedback(msg, "已取消联盟群: " + groupId + " 执行人: [atUin="+ operatorUin + "]");
+                sendReplyFeedback(groupId, replyMsgId, "已取消联盟群: " + groupId + " 执行人: [atUin="+ operatorUin + "]");
             } else {
-                sendReplyFeedback(msg, "格式错误: /alliance add|rm");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /alliance add|rm");
             }
         }
     });
     
     // ========== /fban ==========
     commandHandlers.put("/fban", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "联盟封禁失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "联盟封禁失败: 权限不足"); return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /fban @用户 [理由]"); return;
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /fban @用户 [理由]"); return;
             }
             
             String target = (String) args.targets.get(0);
             
             if (isProtected(groupId, target, operatorUin)) {
-                if (isOwner(target)) sendReplyFeedback(msg, "联盟封禁失败: 不能封禁宿主");
-                else sendReplyFeedback(msg, "联盟封禁失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
+                if (isOwner(target)) sendReplyFeedback(groupId, replyMsgId, "联盟封禁失败: 不能封禁宿主");
+                else sendReplyFeedback(groupId, replyMsgId, "联盟封禁失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
                 return;
             }
             if (!canOperate(groupId, operatorUin, target)) {
-                sendReplyFeedback(msg, "联盟封禁失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "联盟封禁失败: 权限不足"); return;
             }
             if (isFbanUser(target)) {
-                sendReplyFeedback(msg, "该用户已被封禁，请勿再次封禁"); return;
+                sendReplyFeedback(groupId, replyMsgId, "该用户已被封禁，请勿再次封禁"); return;
             }
             
             // 踢出当前群
             try {
                 kickGroup(groupId, target, true);
             } catch (Exception e) {
-                sendReplyFeedback(msg, "联盟封禁失败: " + e.getMessage());
+                sendReplyFeedback(groupId, replyMsgId, "联盟封禁失败: " + e.getMessage());
                 return;
             }
             
@@ -790,75 +789,47 @@ Map commandHandlers = new HashMap();
             String fb = "联盟封禁 用户: " + getMemberDisplayName(groupId, target) + "(" + target + ")";
             if (args.reason != null && !args.reason.isEmpty()) fb += " 理由: " + args.reason;
             fb += " 已通知 " + allGroups.size() + " 个联盟群 执行人: [atUin="+ operatorUin + "]";
-            sendReplyFeedback(msg, fb);
+            sendReplyFeedback(groupId, replyMsgId, fb);
         }
     });
     
     // ========== /unfban ==========
     commandHandlers.put("/unfban", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "解除封禁失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "解除封禁失败: 权限不足"); return;
             }
             
             if (args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /unfban @用户 [原因]"); return;
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /unfban @用户 [原因]"); return;
             }
             
             String target = (String) args.targets.get(0);
             
             if (!isFbanUser(target)) {
-                sendReplyFeedback(msg, "该用户未被联盟封禁"); return;
+                sendReplyFeedback(groupId, replyMsgId, "该用户未被联盟封禁"); return;
             }
             if (!canOperate(groupId, operatorUin, target)) {
-                sendReplyFeedback(msg, "解除封禁失败: 权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "解除封禁失败: 权限不足"); return;
             }
             
             removeFbanUser(target);
             String fb = "解除联盟封禁 用户: " + getMemberDisplayName(groupId, target) + "(" + target + ")";
             if (args.reason != null && !args.reason.isEmpty()) fb += " 原因: " + args.reason;
             fb += " 执行人: [atUin="+ operatorUin + "]";
-            sendReplyFeedback(msg, fb);
-        }
-    });
-    
-    // ========== /toggle ==========
-    commandHandlers.put("/toggle", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
-            if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "权限不足"); return;
-            }
-            
-            if (args.subCommand == null || (!"on".equals(args.subCommand) && !"off".equals(args.subCommand) && args.targets.isEmpty())) {
-                sendReplyFeedback(msg, "格式错误: /toggle <功能名> on|off\n功能: muteonat autoban selftitle unmutedelegate");
-                return;
-            }
-            
-            // 处理 /toggle feature on|off
-            String feature, state;
-            if ("on".equals(args.subCommand) || "off".equals(args.subCommand)) {
-                // 格式: /toggle feature on
-                feature = args.command;  // 实际上这里不对，需要从别的地方拿
-                state = args.subCommand;
-                sendReplyFeedback(msg, "格式错误: /toggle <功能名> on|off");
-                return;
-            }
-            
-            // 从原生文本解析而不是从CommandArgs，因为子命令可能被吃掉
-            // 交给 onMsg 处理
-            sendReplyFeedback(msg, "系统错误: 请使用 /toggle <功能名> on|off");
+            sendReplyFeedback(groupId, replyMsgId, fb);
         }
     });
     
     // ========== /set ==========
     commandHandlers.put("/set", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "权限不足"); return;
             }
             
             if (args.subCommand == null || args.targets.isEmpty()) {
-                sendReplyFeedback(msg, "格式错误: /set <key> <value>\n支持的 key: mutetime(秒)");
+                sendReplyFeedback(groupId, replyMsgId, "格式错误: /set <key> <value>\n支持的 key: mutetime(秒)");
                 return;
             }
             
@@ -869,24 +840,24 @@ Map commandHandlers = new HashMap();
                 try {
                     int seconds = Integer.parseInt(value);
                     if (seconds <= 0 || seconds > 2592000) {
-                        sendReplyFeedback(msg, "时间需在 1~2592000 秒之间"); return;
+                        sendReplyFeedback(groupId, replyMsgId, "时间需在 1~2592000 秒之间"); return;
                     }
                     setGlobalConfig("default_mute_time", String.valueOf(seconds));
-                    sendReplyFeedback(msg, "默认禁言时间已设为 " + formatTime(seconds) + " 执行人: [atUin="+ operatorUin + "]");
+                    sendReplyFeedback(groupId, replyMsgId, "默认禁言时间已设为 " + formatTime(seconds) + " 执行人: [atUin="+ operatorUin + "]");
                 } catch (Exception e) {
-                    sendReplyFeedback(msg, "格式错误: /set mutetime <秒数>");
+                    sendReplyFeedback(groupId, replyMsgId, "格式错误: /set mutetime <秒数>");
                 }
             } else {
-                sendReplyFeedback(msg, "未知配置: " + key);
+                sendReplyFeedback(groupId, replyMsgId, "未知配置: " + key);
             }
         }
     });
     
     // ========== /status ==========
     commandHandlers.put("/status", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwnerOrDelegate(groupId, operatorUin)) {
-                sendReplyFeedback(msg, "权限不足"); return;
+                sendReplyFeedback(groupId, replyMsgId, "权限不足"); return;
             }
             
             String muteOnAt = isEnabled(groupId, "muteonat") ? "开" : "关";
@@ -901,39 +872,39 @@ Map commandHandlers = new HashMap();
                 "自助头衔: " + selfTitle + "\n" +
                 "自动解禁代管: " + unmuteDel + "\n" +
                 "联盟群: " + (isAllianceGroup(groupId) ? "是" : "否");
-            sendReplyFeedback(msg, fb);
+            sendReplyFeedback(groupId, replyMsgId, fb);
         }
     });
     
     // ========== /on ==========
     commandHandlers.put("/on", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwner(operatorUin)) return;
             if (isSessionEnabled(groupId)) {
-                sendReplyFeedback(msg, "群管已启用，无需重复开启");
+                sendReplyFeedback(groupId, replyMsgId, "群管已启用，无需重复开启");
                 return;
             }
             appendLine(getEnabledFile(), groupId);
-            sendReplyFeedback(msg, "群管已启用 执行人:[atUin=" + operatorUin + "]");
+            sendReplyFeedback(groupId, replyMsgId, "群管已启用 执行人:[atUin=" + operatorUin + "]");
         }
     });
 
     // ========== /off ==========
     commandHandlers.put("/off", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             if (!isOwner(operatorUin)) return;
             if (!isSessionEnabled(groupId)) {
-                sendReplyFeedback(msg, "群管未启用，无需重复禁用");
+                sendReplyFeedback(groupId, replyMsgId, "群管未启用，无需重复禁用");
                 return;
             }
             removeLine(getEnabledFile(), groupId);
-            sendReplyFeedback(msg, "群管已禁用 执行人:[atUin=" + operatorUin + "]");
+            sendReplyFeedback(groupId, replyMsgId, "群管已禁用 执行人:[atUin=" + operatorUin + "]");
         }
     });
     
     // ========== /help ==========
     commandHandlers.put("/help", new CommandHandler() {
-        public void handle(String groupId, String operatorUin, CommandArgs args, Object msg) {
+        public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
             boolean isOwnerOrDel = isOwnerOrDelegate(groupId, operatorUin);
             StringBuilder sb = new StringBuilder();
             sb.append("群管指令:\n");
@@ -958,19 +929,19 @@ Map commandHandlers = new HashMap();
             sb.append("/on - 启用本群群管\n");
             sb.append("/off - 禁用本群群管\n");
             sb.append("/help - 显示此帮助\n\n");
-            sb.append("时间格式: 30m(分) 2h(时) 1d(天)\n");
+            sb.append("时间格式: 15s(秒) / 30m(分) / 2h(时) / 1d(天)\n");
             sb.append("支持 @用户 或直接输入 UIN");
-            sendReplyFeedback(msg, sb.toString());
+            sendReplyFeedback(groupId, replyMsgId, sb.toString());
         }
     });
 }
 
 // ==================== 显示禁言列表 ====================
-public void showMuteList(String groupId, Object msg) {
+public void showMuteList(String groupId, long replyMsgId) {
     try {
         ArrayList list = getProhibitList(groupId);
         if (list == null || list.isEmpty()) {
-            sendReplyFeedback(msg, "当前没有人被禁言"); return;
+            sendReplyFeedback(groupId, replyMsgId, "当前没有人被禁言"); return;
         }
         
         StringBuilder sb = new StringBuilder("禁言列表(" + list.size() + "人):\n");
@@ -986,9 +957,9 @@ public void showMuteList(String groupId, Object msg) {
             } catch (Exception e) { }
         }
         sb.append("输入序号可快速操作: 解禁/踢/踢黑");
-        sendReplyFeedback(msg, sb.toString().trim());
+        sendReplyFeedback(groupId, replyMsgId, sb.toString().trim());
     } catch (Exception e) {
-        sendReplyFeedback(msg, "获取禁言列表失败: " + e.getMessage());
+        sendReplyFeedback(groupId, replyMsgId, "获取禁言列表失败: " + e.getMessage());
     }
 }
 
@@ -1050,6 +1021,7 @@ public void onMsg(Object msg) {
     if (msg.type != 2) return;
     
     String groupId = String.valueOf(msg.peerUin);
+    final long replyMsgId = msg.msgId;
     String trimmed = text.trim();
     
     // 未启用的会话，仅 /on 可通行
@@ -1061,7 +1033,7 @@ public void onMsg(Object msg) {
     if (trimmed.startsWith("/")) {
         // 特殊处理 /toggle
         if (trimmed.startsWith("/toggle ")) {
-            handleToggle(groupId, senderUin, trimmed, msg);
+            handleToggle(groupId, senderUin, trimmed, replyMsgId);
             return;
         }
         
@@ -1074,7 +1046,7 @@ public void onMsg(Object msg) {
         // 未知指令 → 直接忽略
         if (handler == null) return;
         
-        handler.handle(groupId, senderUin, args, msg);
+        handler.handle(groupId, senderUin, args, replyMsgId);
         return;
     }
     
@@ -1100,16 +1072,23 @@ public void onMsg(Object msg) {
     }
 }
 
+public boolean atMe(Object msg) {
+    if (msg == null || msg.atList == null || msg.atList.size() == 0) return false;
+    for (Object uin : new ArrayList(msg.atList)) {
+        if (uin != null && uin.toString().equals(myUin)) return true;
+    }
+    return false;
+}
 
 // ==================== /toggle 特殊处理（因为 atList 可能吃掉 feature 名） ====================
-public void handleToggle(String groupId, String operatorUin, String text, Object msg) {
+public void handleToggle(String groupId, String operatorUin, String text, long replyMsgId) {
     if (!isOwnerOrDelegate(groupId, operatorUin)) {
-        sendReplyFeedback(msg, "权限不足"); return;
+        sendReplyFeedback(groupId, replyMsgId, "权限不足"); return;
     }
     
     String[] parts = text.split("\\s+");
     if (parts.length < 3) {
-        sendReplyFeedback(msg, "格式错误: /toggle <功能名> on|off\n功能: muteonat autoban selftitle unmutedelegate");
+        sendReplyFeedback(groupId, replyMsgId, "格式错误: /toggle <功能名> on|off\n功能: muteonat autoban selftitle unmutedelegate");
         return;
     }
     
@@ -1117,7 +1096,7 @@ public void handleToggle(String groupId, String operatorUin, String text, Object
     String state = parts[2].toLowerCase();
     
     if (!"on".equals(state) && !"off".equals(state)) {
-        sendReplyFeedback(msg, "格式错误: /toggle " + feature + " on|off");
+        sendReplyFeedback(groupId, replyMsgId, "格式错误: /toggle " + feature + " on|off");
         return;
     }
     
@@ -1128,7 +1107,7 @@ public void handleToggle(String groupId, String operatorUin, String text, Object
     validFeatures.add("unmutedelegate");
     
     if (!validFeatures.contains(feature)) {
-        sendReplyFeedback(msg, "未知功能: " + feature + "\n可用: muteonat autoban selftitle unmutedelegate");
+        sendReplyFeedback(groupId, replyMsgId, "未知功能: " + feature + "\n可用: muteonat autoban selftitle unmutedelegate");
         return;
     }
     
@@ -1140,7 +1119,7 @@ public void handleToggle(String groupId, String operatorUin, String text, Object
     else if ("selftitle".equals(feature)) { nameZh = "自助头衔"; setGroupConfig(groupId, "selftitle", value); }
     else if ("unmutedelegate".equals(feature)) { nameZh = "自动解禁代管"; setGroupConfig(groupId, "unmutedelegate", value); }
     
-    sendReplyFeedback(msg, nameZh + "已" + ("on".equals(state) ? "开启" : "关闭") + " 执行人: [atUin="+ operatorUin + "]");
+    sendReplyFeedback(groupId, replyMsgId, nameZh + "已" + ("on".equals(state) ? "开启" : "关闭") + " 执行人: [atUin="+ operatorUin + "]");
 }
 
 // ==================== 生命周期 ====================
@@ -1149,11 +1128,12 @@ public void onDestroy() {
 }
 
 /*
-
 *  MIT License
-
+*
+*  Regent-DREX v1.2
+*
 *  Copyright (c) 2026 YiJieqwq异界
-
+*
 *  Permission is hereby granted, free of charge, to any person obtaining a copy
 *  of this software and associated documentation files (the "Software"), to deal
 *  in the Software without restriction, including without limitation the rights
@@ -1170,5 +1150,4 @@ public void onDestroy() {
 *  AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 *  LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 *  OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
-
 */
