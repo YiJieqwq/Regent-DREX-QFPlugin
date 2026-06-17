@@ -1,0 +1,39 @@
+Regent-DREX
+
+基于 DREX 指令路由的 QQ 群管系统，与墨鸦 Strata 同源。
+
+项目链接: https://github.com/YiJieqwq/Regent-DREX-QFPlugin
+基于MIT协议开源
+
+## 指令
+/mute @someone <时间> <理由(可选)>  禁言
+/mute all  全体禁言
+/mute list  禁言列表
+/unmute @someone  解禁
+/unmute all  全体解禁
+/kick @someone <理由(可选)>  踢出
+/ban @someone <理由(可选)>  踢黑
+/ban list  黑名单列表
+/admin add @someone  添加代管
+/admin rm @someone  移除代管
+/admin list  代管列表
+/admin clear 清空代管
+/alliance add  添加到联盟
+/alliance rm  从联盟中移除
+/fban @someone <理由(可选)>  联盟封禁
+/unfban @someone <原因(可选)>  撤销联盟封禁
+/toggle <功能名> on|off  设置功能
+/set mutetime <value>  设置默认禁言时长(无参数情况下)
+/status
+/help
+
+## 参数
+时间格式： 30s 15m 2h 1d
+用户指定： @某人 或直接 UIN
+功能名： 
+muteonat 被艾特后禁言发出者
+autoban 被禁言者退群自动拉黑
+selftitle 自助头衔获取
+unmutedelegate 自动解禁代管
+
+保护规则： 宿主和代管均不可被操作，代管不能操作其他代管。无权限和未知指令直接忽略。
