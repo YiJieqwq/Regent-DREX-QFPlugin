@@ -1,9 +1,17 @@
-Regent-DREX v1.2
+Regent-DREX v1.5
 
 基于 DREX 指令路由的 QQ 群管系统，与墨鸦 Strata 同源。
 
 项目链接: https://github.com/YiJieqwq/Regent-DREX-QFPlugin
 基于MIT协议开源
+
+## 新增功能
+/vote mute @someone <时间> <理由>  投票禁言
+/vote kick/ban/fban @someone 理由  投票踢出
+/vote set count <人数>  管理设置投票所需人数
+/vote set timeout <时间(秒)>  管理设置投票保留时长
+/vote status  查看投票状态
+/vote cancel  取消当前投票
 
 ## 指令
 /mute @someone <时间> <理由(可选)>  禁言
