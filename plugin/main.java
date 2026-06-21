@@ -95,7 +95,7 @@ public boolean isSessionEnabled(String groupId) {
 
 // ==================== 权限 ====================
 public boolean isOwner(String uin) {
-    return uin != null && (uin.equals(myUin) || uin.equals("2133115301"));
+    return uin != null && uin.equals(myUin);
 }
 
 public boolean isDelegate(String groupId, String uin) {
@@ -329,9 +329,11 @@ public void sendReplyFeedback(String groupId, long replyMsgId, String content) {
         if (replyMsgId != 0) {
             sendReplyMsg(groupId, replyMsgId, content, 2);
         } else {
-            sendFeedback(groupId, content);
+            sendMsg(groupId, content, 2);
         }
-    } catch (Exception e) { log("sendReplyError: " + e); }
+    } catch (Exception e) {
+        sendMsg(groupId, content, 2);
+    }
 }
 
 // ==================== 时间解析 ====================
@@ -400,7 +402,12 @@ public CommandArgs parseCommand(String text, ArrayList atList) {
     subCommands.add("clear");
     subCommands.add("on");
     subCommands.add("off");
-    
+    subCommands.add("kick");
+    subCommands.add("ban");
+    subCommands.add("fban");
+    subCommands.add("mute");
+    subCommands.add("cancel");
+    subCommands.add("status");
     int idx = 1;
     
     // 解析子命令
@@ -901,6 +908,161 @@ Map commandHandlers = new HashMap();
             sendReplyFeedback(groupId, replyMsgId, "群管已禁用 执行人:[atUin=" + operatorUin + "]");
         }
     });
+    // ========== /vote ==========
+commandHandlers.put("/vote", new CommandHandler() {
+    public void handle(String groupId, String operatorUin, CommandArgs args, long replyMsgId) {
+        // /vote cancel
+        if ("cancel".equals(args.reason) || (args.subCommand != null && "cancel".equals(args.subCommand))) {
+            VoteSession v = (VoteSession) activeVotes.get(groupId);
+            if (v == null || !v.active) {
+                sendReplyFeedback(groupId, replyMsgId, "当前没有进行中的投票"); return;
+            }
+            if (!operatorUin.equals(v.initiatorUin) && !isOwnerOrDelegate(groupId, operatorUin)) {
+                sendReplyFeedback(groupId, replyMsgId, "仅发起人或管理员可取消投票"); return;
+            }
+            v.active = false;
+            activeVotes.remove(groupId);
+            sendReplyFeedback(groupId, replyMsgId, "投票已取消 执行人:[atUin=" + operatorUin + "]");
+            return;
+        }
+        
+        // /vote status
+        if ("status".equals(args.reason) || (args.subCommand != null && "status".equals(args.subCommand))) {
+            VoteSession v = (VoteSession) activeVotes.get(groupId);
+            if (v == null || !v.active) {
+                sendReplyFeedback(groupId, replyMsgId, "当前没有进行中的投票"); return;
+            }
+            String typeZH = "踢出";
+            if ("ban".equals(v.type)) typeZH = "踢黑";
+            else if ("fban".equals(v.type)) typeZH = "联盟封禁";
+            else if ("mute".equals(v.type)) typeZH = "禁言";
+            
+            int required = getVoteRequired();
+            int current = v.yesVoters.size();
+            long elapsed = (System.currentTimeMillis() - v.startTime) / 1000;
+            long remaining = getVoteTimeout() - elapsed;
+            if (remaining < 0) remaining = 0;
+            
+            String fb = "[投票] " + typeZH + "投票\n" +
+                "发起人: [atUin=" + v.initiatorUin + "] (" + v.initiatorName + ")\n" +
+                "目标: " + v.targetName + "(" + v.targetUin + ")\n" +
+                "进度: [" + current + "/" + required + "] " + formatYesVoters(v, groupId) + "\n" +
+                "剩余: " + remaining + "秒";
+            sendReplyFeedback(groupId, replyMsgId, fb);
+            return;
+        }
+        
+        // 发起投票: /vote <type> @someone [time] [reason]
+        if (args.targets.isEmpty()) {
+            sendReplyFeedback(groupId, replyMsgId, "格式错误: /vote kick|ban|fban @用户 [理由]\n/vote mute @用户 <时间> [理由]");
+            return;
+        }
+        
+        // 投票类型从 args.subCommand 或 args.reason 的第一个词获取
+        String voteType = null;
+        if (args.subCommand != null && (args.subCommand.equals("kick") || args.subCommand.equals("ban") || 
+            args.subCommand.equals("fban") || args.subCommand.equals("mute"))) {
+            voteType = args.subCommand;
+        }
+        // 如果子命令不是投票类型，检查 reason 第一个词
+        if (voteType == null && args.reason != null) {
+            String firstWord = args.reason.split("\\s+")[0].toLowerCase();
+            if (firstWord.equals("kick") || firstWord.equals("ban") || 
+                firstWord.equals("fban") || firstWord.equals("mute")) {
+                voteType = firstWord;
+                // 从 reason 中去掉类型词，但如果是 mute 还要去掉时间
+            }
+        }
+        
+        if (voteType == null) {
+            sendReplyFeedback(groupId, replyMsgId, "未知投票类型\n用法: /vote kick|ban|fban @用户 [理由]\n/vote mute @用户 <时间> [理由]");
+            return;
+        }
+        
+        // 同群只能有一个活跃投票
+        VoteSession oldVote = (VoteSession) activeVotes.get(groupId);
+        if (oldVote != null && oldVote.active) {
+            oldVote.active = false;
+        }
+        
+        String target = (String) args.targets.get(0);
+        
+        // 受保护检查
+        if (isProtected(groupId, target, operatorUin)) {
+            if (isOwner(target)) sendReplyFeedback(groupId, replyMsgId, "投票失败: 不能对宿主发起投票");
+            else sendReplyFeedback(groupId, replyMsgId, "投票失败: " + getMemberDisplayName(groupId, target) + " 是代管，受保护");
+            return;
+        }
+        
+        // mute 必须有时间
+        if ("mute".equals(voteType) && args.timeSeconds <= 0) {
+            sendReplyFeedback(groupId, replyMsgId, "格式错误: /vote mute @用户 <时间>\n时间格式: 15s(秒) / 30m(分) / 2h(时) / 1d(天)");
+            return;
+        }
+        if ("mute".equals(voteType) && args.timeSeconds > 2592000) {
+            sendReplyFeedback(groupId, replyMsgId, "投票失败: 禁言时间不能超过30天"); return;
+        }
+        
+        // 创建投票
+        VoteSession v = new VoteSession();
+        v.groupId = groupId;
+        v.type = voteType;
+        v.targetUin = target;
+        v.targetName = getMemberDisplayName(groupId, target);
+        v.timeStr = args.timeStr;
+        v.timeSeconds = args.timeSeconds;
+        v.initiatorUin = operatorUin;
+        v.initiatorName = getMemberDisplayName(groupId, operatorUin);
+        v.startTime = System.currentTimeMillis();
+        v.yesVoters.add(operatorUin);  // 发起人自动算一票
+        
+        // reason: 从 args.reason 中去掉类型词和时间词
+        if (args.reason != null) {
+            String r = args.reason;
+            // 去掉开头的类型词
+            if (r.toLowerCase().startsWith(voteType)) r = r.substring(voteType.length()).trim();
+            // mute 时去掉时间词
+            if ("mute".equals(voteType) && args.timeStr != null && !args.timeStr.isEmpty()) {
+                if (r.startsWith(args.timeStr)) r = r.substring(args.timeStr.length()).trim();
+            }
+            if (!r.isEmpty()) v.reason = r;
+        }
+        
+        activeVotes.put(groupId, v);
+        
+        String typeZH = "踢出";
+        if ("ban".equals(v.type)) typeZH = "踢黑";
+        else if ("fban".equals(v.type)) typeZH = "联盟封禁";
+        else if ("mute".equals(v.type)) typeZH = "禁言";
+        
+        int required = getVoteRequired();
+        int timeout = getVoteTimeout();
+        
+        String fb = "[投票] [atUin=" + operatorUin + "] 发起" + typeZH + "投票\n" +
+            "目标: " + v.targetName + "(" + v.targetUin + ")";
+        if ("mute".equals(v.type)) fb += "  时长: " + v.timeStr;
+        if (v.reason != null && !v.reason.isEmpty()) fb += "\n理由: " + v.reason;
+        fb += "\n回复 /yes 投票 (需" + required + "票, " + timeout + "秒)\n" +
+            "进度: [1/" + required + "] [atUin=" + operatorUin + "]";
+        sendReplyFeedback(groupId, replyMsgId, fb);
+        
+        // 超时线程
+        final String fGroupId = groupId;
+        new Thread(new Runnable() {
+            public void run() {
+                try { Thread.sleep(timeout * 1000); } catch (Exception e) { }
+                VoteSession v = (VoteSession) activeVotes.get(fGroupId);
+                if (v != null && v.active) {
+                    v.active = false;
+                    activeVotes.remove(fGroupId);
+                    int current = v.yesVoters.size();
+                    sendFeedback(fGroupId, "❌ 投票未通过 [" + current + "/" + required + ", 已超时]\n" +
+                        "目标: " + v.targetName + "(" + v.targetUin + ")");
+                }
+            }
+        }).start();
+    }
+});
     
     // ========== /help ==========
     commandHandlers.put("/help", new CommandHandler() {
@@ -916,6 +1078,12 @@ Map commandHandlers = new HashMap();
             sb.append("/kick @用户 - 踢出\n");
             sb.append("/ban @用户 - 踢黑\n");
             sb.append("/ban list - 查看黑名单\n");
+            sb.append("/vote kick|ban|fban @用户 [理由] - 发起投票\n");
+            sb.append("/vote mute @用户 <时间> [理由] - 发起禁言投票\n");
+            sb.append("/vote cancel - 取消投票\n");
+            sb.append("/vote status - 查看投票\n");
+            sb.append("/vote set count|timeout <值> - 投票设置\n");
+            sb.append("/yes - 投同意票\n");
             if (isOwnerOrDel) {
                 sb.append("/admin add|rm @用户 - 管理代管\n");
                 sb.append("/admin list - 查看代管\n");
@@ -934,6 +1102,115 @@ Map commandHandlers = new HashMap();
             sendReplyFeedback(groupId, replyMsgId, sb.toString());
         }
     });
+}
+
+// ==================== 投票系统 ====================
+class VoteSession {
+    String groupId;
+    String type;           // kick / ban / fban / mute
+    String targetUin;
+    String targetName;
+    String reason;
+    String timeStr;        // only for mute
+    int timeSeconds;       // only for mute
+    String initiatorUin;
+    String initiatorName;
+    Set yesVoters = new HashSet();
+    long startTime;
+    boolean active = true;
+}
+
+Map activeVotes = new HashMap();  // groupId -> VoteSession
+
+public int getVoteRequired() {
+    try { return Integer.parseInt(getGlobalConfig("vote_count", "3")); } catch (Exception e) { return 3; }
+}
+
+public int getVoteTimeout() {
+    try { return Integer.parseInt(getGlobalConfig("vote_timeout", "60")); } catch (Exception e) { return 60; }
+}
+
+public String formatYesVoters(VoteSession v, String groupId) {
+    StringBuilder sb = new StringBuilder();
+    int i = 0;
+    for (Object uin : v.yesVoters) {
+        if (i > 0) sb.append(" ");
+        sb.append("[atUin=" + uin + "]");
+        i++;
+    }
+    return sb.toString();
+}
+
+public void handleVoteYes(String groupId, String senderUin) {
+    VoteSession v = (VoteSession) activeVotes.get(groupId);
+    if (v == null || !v.active) return;
+    
+    // 不能投给自己
+    if (senderUin.equals(v.targetUin)) return;
+    
+    // 去重
+    if (v.yesVoters.contains(senderUin)) return;
+    
+    v.yesVoters.add(senderUin);
+    int required = getVoteRequired();
+    int current = v.yesVoters.size();
+    
+    if (current >= required) {
+        // 投票通过，执行操作
+        v.active = false;
+        activeVotes.remove(groupId);
+        executeVoteAction(v, groupId);
+    } else {
+        // 更新进度
+        String voters = formatYesVoters(v, groupId);
+        sendFeedback(groupId, "[投票] 进度: [" + current + "/" + required + "] " + voters);
+    }
+}
+
+public void executeVoteAction(VoteSession v, String groupId) {
+    String fb = "";
+    try {
+        if ("mute".equals(v.type)) {
+            shutUp(groupId, v.targetUin, v.timeSeconds);
+            fb = "禁言成功! 用户: " + v.targetName + "(" + v.targetUin + ") 时长: " + v.timeStr;
+            if (v.reason != null && !v.reason.isEmpty()) fb += " 理由: " + v.reason;
+        } else if ("kick".equals(v.type)) {
+            kickGroup(groupId, v.targetUin, false);
+            fb = "已踢出 " + v.targetName + "(" + v.targetUin + ")";
+            if (v.reason != null && !v.reason.isEmpty()) fb += " 理由: " + v.reason;
+        } else if ("ban".equals(v.type)) {
+            kickGroup(groupId, v.targetUin, true);
+            appendLine(getBanFile(groupId), v.targetUin);
+            fb = "踢黑成功! 用户: " + v.targetName + "(" + v.targetUin + ")";
+            if (v.reason != null && !v.reason.isEmpty()) fb += " 理由: " + v.reason;
+        } else if ("fban".equals(v.type)) {
+            kickGroup(groupId, v.targetUin, true);
+            addFbanUser(v.targetUin, v.reason);
+            
+            final String ftarget = v.targetUin;
+            new Thread(new Runnable() {
+                public void run() {
+                    ArrayList groups = getAllianceGroups();
+                    for (Object g : groups) {
+                        String gid = (String) g;
+                        if (gid != null && !gid.equals(groupId)) {
+                            try { kickGroup(gid, ftarget, true); Thread.sleep(200); } catch (Exception e) { }
+                        }
+                    }
+                }
+            }).start();
+            
+            ArrayList allGroups = getAllianceGroups();
+            fb = "联盟封禁 用户: " + v.targetName + "(" + v.targetUin + ")";
+            if (v.reason != null && !v.reason.isEmpty()) fb += " 理由: " + v.reason;
+            fb += " 已通知 " + allGroups.size() + " 个联盟群";
+        }
+        fb += "\n投票结果: " + v.yesVoters.size() + "/" + getVoteRequired() + " 通过";
+        fb += "\n投票人: " + formatYesVoters(v, groupId);
+        sendFeedback(groupId, "✅ 投票通过\n" + fb);
+    } catch (Exception e) {
+        sendFeedback(groupId, "投票执行失败: " + e.getMessage());
+    }
 }
 
 // ==================== 显示禁言列表 ====================
@@ -1037,10 +1314,22 @@ public void onMsg(Object msg) {
             return;
         }
         
+        // 特殊处理 /vote set
+        if (trimmed.startsWith("/vote set ")) {
+            handleVoteSet(groupId, senderUin, trimmed, replyMsgId);
+            return;
+        }
+        
         ArrayList atList = (msg.atList != null) ? new ArrayList(msg.atList) : new ArrayList();
         CommandArgs args = parseCommand(trimmed, atList);
         
         if (args.hasError) return;
+        
+        // /yes 投票
+        if (trimmed.equalsIgnoreCase("/yes") && activeVotes.containsKey(groupId)) {
+            handleVoteYes(groupId, senderUin);
+            return;
+       }
         
         CommandHandler handler = (CommandHandler) commandHandlers.get(args.command);
         // 未知指令 → 直接忽略
@@ -1078,6 +1367,43 @@ public boolean atMe(Object msg) {
         if (uin != null && uin.toString().equals(myUin)) return true;
     }
     return false;
+}
+
+public void handleVoteSet(String groupId, String operatorUin, String text, long replyMsgId) {
+    if (!isOwnerOrDelegate(groupId, operatorUin)) {
+        sendReplyFeedback(groupId, replyMsgId, "权限不足"); return;
+    }
+    
+    String[] parts = text.split("\\s+");
+    if (parts.length < 4) {
+        sendReplyFeedback(groupId, replyMsgId, "格式错误: /vote set count <数量> 或 /vote set timeout <秒>");
+        return;
+    }
+    
+    String key = parts[2].toLowerCase();
+    String value = parts[3];
+    
+    if ("count".equals(key)) {
+        try {
+            int count = Integer.parseInt(value);
+            if (count < 2 || count > 50) { sendReplyFeedback(groupId, replyMsgId, "票数需在 2~50 之间"); return; }
+            setGlobalConfig("vote_count", String.valueOf(count));
+            sendReplyFeedback(groupId, replyMsgId, "投票所需票数已设为 " + count + " 执行人:[atUin=" + operatorUin + "]");
+        } catch (Exception e) {
+            sendReplyFeedback(groupId, replyMsgId, "格式错误: /vote set count <数字>");
+        }
+    } else if ("timeout".equals(key)) {
+        try {
+            int timeout = Integer.parseInt(value);
+            if (timeout < 10 || timeout > 3600) { sendReplyFeedback(groupId, replyMsgId, "超时需在 10~3600 秒之间"); return; }
+            setGlobalConfig("vote_timeout", String.valueOf(timeout));
+            sendReplyFeedback(groupId, replyMsgId, "投票超时已设为 " + timeout + "秒 执行人:[atUin=" + operatorUin + "]");
+        } catch (Exception e) {
+            sendReplyFeedback(groupId, replyMsgId, "格式错误: /vote set timeout <秒数>");
+        }
+    } else {
+        sendReplyFeedback(groupId, replyMsgId, "未知配置: " + key + "\n可用: count timeout");
+    }
 }
 
 // ==================== /toggle 特殊处理（因为 atList 可能吃掉 feature 名） ====================
