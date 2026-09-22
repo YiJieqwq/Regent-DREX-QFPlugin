@@ -1,43 +1,45 @@
 # Regent-DREX
 
-> QQ 群管指令系统 — 基于 DREX 指令路由架构，与墨鸦 Strata 同源。
+**English** | [中文](README.zh-CN.md)
 
-## 简介
+> A QQ group administration command system — built on the DREX command-routing architecture, a sibling of Corax Strata.
 
-Regent-DREX 是一个运行在 QFun 环境下的群管理工具，采用注册表 + 参数解析器架构。
-所有指令为 `/` 开头的英文格式，支持 `@用户` 和直接 UIN 两种指定方式，
-每条操作反馈附带蓝色可点击艾特。
+## Introduction
 
-## 快速开始
+Regent-DREX is a group management tool running in the QFun environment, built on a registry + argument-parser architecture.
+Every command is an English `/`-prefixed command and accepts either `@user` or a bare UIN.
+Each action reply includes a blue, clickable mention.
 
-### 安装
+## Quick Start
 
-1. 将 CI集成包 解压至 QFun 插件目录
-2. 在目标群发送 `/on` 启用群管
-3. 开始使用指令
+### Installation
 
-### 基础配置
+1. Extract the CI bundle into the QFun plugin directory
+2. Send `/on` in the target group to enable group administration
+3. Start using the commands
 
-```
-/on                  # 启用本群群管
-/on                  # 重复启用 → 提示"无需重复开启"
-/off                 # 禁用本群群管
-/admin add @someone  # 添加代管
-```
-
-## 指令
+### Basic Setup
 
 ```
-/mute @someone <时间> <理由(可选)>
+/on                  # Enable administration in this group
+/on                  # Repeated enable → "already enabled"
+/off                 # Disable administration in this group
+/admin add @someone  # Add a delegate
+```
+
+## Commands
+
+```
+/mute @someone <duration> <reason (optional)>
 /mute all
 /mute list
 
 /unmute @someone
 /unmute all
 
-/kick @someone <理由(可选)>
+/kick @someone <reason (optional)>
 
-/ban @someone <理由(可选)>
+/ban @someone <reason (optional)>
 /ban list
 
 /admin add @someone
@@ -48,84 +50,84 @@ Regent-DREX 是一个运行在 QFun 环境下的群管理工具，采用注册�
 /alliance add
 /alliance rm
 
-/fban @someone <理由(可选)>
-/unfban @someone <原因(可选)>
+/fban @someone <reason (optional)>
+/unfban @someone <cause (optional)>
 
-/toggle <功能名> on|off
+/toggle <feature> on|off
 /set <key> <value>
 /status
 /help
 ```
 
-## 参数
+## Arguments
 
-| 类型 | 格式 | 示例 |
+| Type | Format | Example |
 |------|------|------|
-| 时间 | `30s` `15m` `2h` `1d` | `/mute @张三 30m` |
-| 用户 | `@某人` 或 `UIN` | `/kick @张三` 或 `/kick 123456` |
-| 理由 | 任意文本，放在最后 | `/kick @张三 广告` |
+| Duration | `30s` `15m` `2h` `1d` | `/mute @Alice 30m` |
+| User | `@someone` or a UIN | `/kick @Alice` or `/kick 123456` |
+| Reason | Any text, placed last | `/kick @Alice advertising` |
 
-## 功能开关
+## Feature Toggles
 
-| 功能名 | 说明 | 示例 |
+| Feature | Description | Example |
 |--------|------|------|
-| `muteonat` | 艾特机器人即禁言 | `/toggle muteonat on` |
-| `autoban` | 退群自动拉黑 | `/toggle autoban on` |
-| `selftitle` | 自助头衔 | `/toggle selftitle off` |
-| `unmutedelegate` | 代管被禁言自动解禁 | `/toggle unmutedelegate on` |
+| `muteonat` | Mute someone for mentioning the bot | `/toggle muteonat on` |
+| `autoban` | Auto-blacklist users who leave the group | `/toggle autoban on` |
+| `selftitle` | Self-service titles | `/toggle selftitle off` |
+| `unmutedelegate` | Auto-unmute a muted delegate | `/toggle unmutedelegate on` |
 
-## 配置项
+## Configuration Keys
 
-| key | 值类型 | 说明 | 示例 |
+| key | Type | Description | Example |
 |-----|--------|------|------|
-| `mutetime` | 秒数 | 艾特禁言默认时长 | `/set mutetime 86400` |
+| `mutetime` | Seconds | Default duration for mention-triggered mutes | `/set mutetime 86400` |
 
-## 权限模型
+## Permission Model
 
-| 角色 | 可执行指令 |
+| Role | Allowed commands |
 |------|-----------|
-| 宿主 | 全部指令（`/on` `/off` `/admin` `/alliance` 仅宿主） |
-| 代管 | `/mute` `/unmute` `/kick` `/ban` `/fban` `/unfban` `/toggle` `/set` `/status` |
-| 成员 | `/help` |
+| Host | All commands (`/on` `/off` `/admin` `/alliance` are host-only) |
+| Delegate | `/mute` `/unmute` `/kick` `/ban` `/fban` `/unfban` `/toggle` `/set` `/status` |
+| Member | `/help` |
 
-### 保护规则
+### Protection Rules
 
-- 宿主不可被任何管理指令操作
-- 代管一旦添加即进入受保护池，**任何人**（包括宿主）都不能通过 `/mute` `/kick` `/ban` 操作代管
-- 代管不能操作其他代管
-- 无权限用户发指令 → 直接忽略，不发任何消息
-- 未知指令 → 直接忽略，不发任何消息
-- 重复 `/on` `/off` → 提示已开启/已关闭
+- The host can never be acted on by any administrative command
+- Once added, a delegate enters a protected pool: **nobody** (including the host) can act on a delegate via `/mute` `/kick` `/ban`
+- A delegate cannot act on another delegate
+- Unauthorized users sending commands → silently ignored, no message sent
+- Unknown commands → silently ignored, no message sent
+- Repeated `/on` `/off` → a notice that it is already enabled/disabled
 
-## 反馈格式
+## Reply Format
 
 ```
-禁言成功! 用户: 张三(123456) 时长: 30m 理由: 刷屏 执行人:[atUin=789012]
+Muted! User: Alice(123456) Duration: 30m Reason: spamming By: [atUin=789012]
 ```
 
-`[atuin=xxx]` 在 QQ 中显示为蓝色可点击艾特。
+`[atuin=xxx]` renders in QQ as a blue, clickable mention.
 
-## 事件监听
+## Event Listeners
 
-| 事件 | 行为 |
+| Event | Behavior |
 |------|------|
-| 用户入群 | 检查退群黑名单和联盟封禁，命中则自动踢黑 |
-| 用户退群 | 退群拉黑开启时，自动加入黑名单 |
-| 用户被禁言 | 自动解禁代管开启时，检测代管被禁言则自动解禁 |
+| User joins group | Checks the leave-blacklist and alliance ban list; kicks automatically on a hit |
+| User leaves group | When leave-blacklisting is on, adds the user to the blacklist |
+| User gets muted | When auto-unmute-delegates is on, unmutes a delegate who was muted |
 
-## 存储结构
+## Storage Layout
 
 ```
 config/
-├── enabled_sessions.txt    # 已启用群管会话列表
-├── delegates/list.txt      # 代管列表
-├── banlist/{群号}.txt       # 退群黑名单
-├── group_config/{群号}.json # 群设置
-├── alliance.txt            # 联盟群列表
-├── fban_list.txt           # 联盟封禁列表
-└── global_config.json      # 全局配置
+├── enabled_sessions.txt    # Sessions where administration is enabled
+├── delegates/list.txt      # Delegate list
+├── banlist/{group}.txt     # Leave-blacklist per group
+├── group_config/{group}.json # Per-group settings
+├── alliance.txt            # Alliance group list
+├── fban_list.txt           # Alliance ban list
+└── global_config.json      # Global configuration
 ```
 
-## 作者
+## Author
 
-YiJieqwq异界 基于MIT协议开源
+YiJieqwq — released under the MIT License.
